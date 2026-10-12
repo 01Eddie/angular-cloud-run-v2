@@ -96,7 +96,7 @@ gcloud services enable \
 
 En este laboratorio **cada alumno configura su propia federación WIF**, igual que en la demostración del docente. Todos trabajan dentro del mismo proyecto de GCP, `utec-posgrado-01`, pero cada alumno debe usar nombres únicos para su pool, proveedor OIDC, Service Account, imagen y servicio Cloud Run.
 
-> **Antes de ejecutar comandos:** confirma con el instructor que tu usuario tiene permisos IAM para crear pools/proveedores WIF, cuentas de servicio y asignar los roles necesarios. Si recibes `PERMISSION_DENIED`, detente y solicita al administrador que otorgue los permisos o ejecute el paso correspondiente. No generes claves JSON ni solicites `roles/owner`.
+> **Antes de ejecutar comandos:** para completar tú mismo todos los pasos, tu identidad de usuario debe tener permisos para crear pools/proveedores WIF, Service Accounts y repositorios Artifact Registry, y modificar las políticas IAM requeridas. Esto concede privilegios amplios dentro del proyecto compartido. El instructor debe aprobar y habilitar expresamente esos permisos; si no, tendrá que ejecutar los pasos de IAM por ti. Si recibes `PERMISSION_DENIED`, detente y solicita al administrador que otorgue los permisos o ejecute el paso correspondiente. No generes claves JSON ni solicites `roles/owner`.
 
 ### 1. Preparar variables
 
@@ -218,26 +218,6 @@ gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA_EMAIL" \
 
 > **Advertencia de seguridad para el proyecto compartido:** `roles/run.admin` asignado a nivel de proyecto permite administrar servicios de Cloud Run de otros alumnos, no solo el propio. `roles/artifactregistry.writer` a nivel de proyecto también puede dar acceso de escritura más amplio de lo necesario. Usa estos comandos únicamente si el instructor aprobó este modelo de confianza. Para aislamiento real, el administrador debe definir permisos más restringidos por recurso/rol personalizado; nombres diferentes por sí solos no son una barrera de seguridad. Si tu usuario no puede asignar estos roles, pide al instructor que los conceda o ejecute los comandos.
 
-### 9. Obtener los valores para GitHub Actions
-
-Obtén el nombre completo del proveedor WIF:
-
-```bash
-gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
-  --project="$PROJECT_ID" \
-  --location="global" \
-  --workload-identity-pool="$POOL_ID" \
-  --format="value(name)"
-```
-
-Copia el resultado completo; tendrá esta forma:
-
-```text
-projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool-ALUMNO_ID/providers/github-provider-ALUMNO_ID
-```
-
-Usa el valor real devuelto por el comando, no el texto de ejemplo. En tu fork, abre **Settings → Secrets and variables → Actions** y configura las variables y secrets de la siguiente sección.
-
 ### 8. Crear tu propio repositorio de Artifact Registry
 
 Cada alumno crea su propio repositorio Docker en el proyecto compartido. Así no comparten el repositorio de imágenes entre alumnos:
@@ -263,6 +243,26 @@ gcloud artifacts repositories add-iam-policy-binding "$ARTIFACT_REGISTRY_REPO" \
 ```
 
 El repositorio de imágenes será `app-$ALUMNO_ID` y la imagen tendrá una ruta como `us-central1-docker.pkg.dev/utec-posgrado-01/app-jperez/app-jperez:<commit>`.
+
+### 9. Obtener los valores para GitHub Actions
+
+Obtén el nombre completo del proveedor WIF:
+
+```bash
+gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
+  --project="$PROJECT_ID" \
+  --location="global" \
+  --workload-identity-pool="$POOL_ID" \
+  --format="value(name)"
+```
+
+Copia el resultado completo; tendrá esta forma:
+
+```text
+projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool-ALUMNO_ID/providers/github-provider-ALUMNO_ID
+```
+
+Usa el valor real devuelto por el comando, no el texto de ejemplo. En tu fork, abre **Settings → Secrets and variables → Actions** y configura las variables y secrets de la siguiente sección.
 
 ### Recursos comunes y recursos independientes
 
