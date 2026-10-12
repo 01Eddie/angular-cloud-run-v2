@@ -113,6 +113,8 @@ Para la configuración ya existente del entorno del instructor, consulta [`docs/
 5. Crea un repositorio Artifact Registry con nombre único dentro de su proyecto, o utiliza el repositorio que el administrador le haya asignado.
 6. No generes ni guardes claves JSON. El workflow debe autenticarse mediante OIDC/WIF.
 
+**Importante: el workflow actual todavía tiene valores fijos** en `.github/workflows/utec.yml` (`GCP_PROJECT_ID`, `GCP_REGION` y `ARTIFACT_REGISTRY_REPO`). En tu fork, edita esos valores para que apunten a tu proyecto y al repositorio de imágenes que te asignaron. Los comandos `export` de esta guía no cambian automáticamente las variables `env:` que están escritas dentro del archivo YAML. No ejecutes el pipeline hasta confirmar que esos valores y las variables WIF correspondan a tu entorno.
+
 ### Recursos con nombres únicos
 
 Para evitar colisiones dentro de un proyecto compartido, define un alias único, en minúsculas y sin espacios. Por ejemplo:
@@ -218,16 +220,22 @@ El pipeline:
 ### Desde la terminal
 
 ```bash
-# Ver el servicio desplegado
-SERVICE_NAME="gemini-angular-TU_ALUMNO_ID-dev"
+# Define estos valores para tu propio proyecto y tu alias.
+PROJECT_ID="TU_PROJECT_ID"
+ALUMNO_ID="TU_ALUMNO_ID"
+ENVIRONMENT_NAME="dev"
+GCP_REGION="us-central1"
+SERVICE_NAME="gemini-angular-$ALUMNO_ID-$ENVIRONMENT_NAME"
 
-gcloud run services describe $SERVICE_NAME \
-  --region us-central1 \
+gcloud run services describe "$SERVICE_NAME" \
+  --project="$PROJECT_ID" \
+  --region="$GCP_REGION" \
   --format="table(status.url,status.traffic)"
 
 # Ver la distribución de tráfico entre revisiones
-gcloud run services describe $SERVICE_NAME \
-  --region us-central1 \
+gcloud run services describe "$SERVICE_NAME" \
+  --project="$PROJECT_ID" \
+  --region="$GCP_REGION" \
   --format="value(status.traffic)"
 ```
 
@@ -301,7 +309,7 @@ SERVICE_NAME="gemini-angular-${{ secrets.ALUMNO_ID }}-${{ secrets.ENVIRONMENT_NA
 IMAGE_TAG="..../app-${{ secrets.ALUMNO_ID }}:${{ github.sha }}"
 ```
 
-Cada alumno usa su propio `ALUMNO_ID` como secreto, lo que genera nombres de servicio e imágenes únicos. Así todos trabajan en el mismo proyecto GCP sin colisiones.
+Cada alumno usa su propio `ALUMNO_ID` para generar nombres distintos de servicio e imagen. Esto evita ciertas colisiones de nombres, pero no configura los permisos ni garantiza aislamiento de seguridad. Para aislar recursos, usa un proyecto propio o permisos IAM delimitados.
 
 ---
 
@@ -319,9 +327,9 @@ gcloud auth configure-docker us-central1-docker.pkg.dev
 Verifica que la Service Account tiene los roles correctos:
 
 ```bash
-gcloud projects get-iam-policy utec-posgrado-01 \
+gcloud projects get-iam-policy "$PROJECT_ID" \
   --flatten="bindings[].members" \
-  --filter="bindings.members:github-actions-sa"
+  --filter="bindings.members:$GCP_SERVICE_ACCOUNT"
 ```
 
 ### Error de Workload Identity Federation
@@ -352,14 +360,14 @@ Para evitar cargos en GCP, elimina los recursos creados:
 gcloud run services delete "gemini-angular-TU_ALUMNO_ID-dev" \
   --region us-central1 --quiet
 
-# Eliminar las imágenes del Artifact Registry
+# Eliminar las imágenes SOLO si este repositorio pertenece a tu alumno/proyecto.
+# Sustituye PROJECT_ID y ARTIFACT_REGISTRY_REPO por los valores reales.
 gcloud artifacts docker images delete \
-  "us-central1-docker.pkg.dev/utec-posgrado-01/app-gemini/app-TU_ALUMNO_ID" \
+  "us-central1-docker.pkg.dev/TU_PROJECT_ID/TU_ARTIFACT_REGISTRY_REPO/app-TU_ALUMNO_ID" \
   --delete-tags --quiet
 
-# (Opcional) Eliminar la Service Account
-gcloud iam service-accounts delete \
-  "github-actions-sa@utec-posgrado-01.iam.gserviceaccount.com" --quiet
+# No elimines la Service Account, el pool WIF ni el provider compartido del instructor.
+# Elimina una cuenta propia solo si confirmas que no la utiliza ningún otro recurso.
 ```
 
 ---
