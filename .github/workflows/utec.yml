@@ -31,7 +31,6 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
           project_id: ${{ env.GCP_PROJECT_ID }}
-          project_id: ${{ env.GCP_PROJECT_ID }}
 
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
@@ -61,6 +60,7 @@ jobs:
 
           if [ "${{ steps.check_service.outputs.is_first_deploy }}" = "true" ]; then
             gcloud run deploy "$SERVICE_NAME" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
               --image "$IMAGE_TAG" \
               --region ${{ env.GCP_REGION }} \
               --platform managed \
@@ -73,6 +73,7 @@ jobs:
 
             # 2. Desplegar la nueva imagen sin tráfico
             gcloud run deploy "$SERVICE_NAME" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
               --image "$IMAGE_TAG" \
               --region ${{ env.GCP_REGION }} \
               --platform managed \
@@ -86,6 +87,7 @@ jobs:
             # 4. Aplicar el tráfico dinámicamente
             echo "Asignando 90% a $PREVIOUS_REV y 10% a $CANARY_REV"
             gcloud run services update-traffic "$SERVICE_NAME" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
               --region ${{ env.GCP_REGION }} \
               --to-revisions="$PREVIOUS_REV=90,$CANARY_REV=10"
           fi
