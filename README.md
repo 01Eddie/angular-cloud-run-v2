@@ -52,46 +52,42 @@ tráfico    (vuelve a versión estable)
 
 > 💡 Puedes usar [GitHub Codespaces](https://github.com/features/codespaces) o Cloud Shell si no quieres instalar todas las herramientas en tu equipo.
 
-### 2. Modelo de trabajo para un aula
+### 2. Modelo de trabajo para esta clase: un proyecto GCP compartido
 
-**Importante: no ejecutes todos los comandos de IAM/WIF de forma independiente en el proyecto compartido.** El pool WIF, el proveedor OIDC, la cuenta de despliegue y los permisos de proyecto son infraestructura compartida y deben configurarse una sola vez por el instructor o el administrador.
+Todos los alumnos utilizan el mismo proyecto de Google Cloud: `utec-posgrado-01`. **No crees un proyecto nuevo ni vuelvas a habilitar las APIs por cada alumno.** El instructor/administrador configura una sola vez las APIs, el pool WIF, el proveedor OIDC y los recursos compartidos de Artifact Registry.
 
-Hay dos modelos válidos:
+Para evitar colisiones accidentales:
 
-- **Recomendado para la clase:** cada alumno trabaja en su propio fork/repositorio GitHub y usa su propio proyecto de Google Cloud. Así tiene su identidad, permisos, Artifact Registry, Cloud Run y aprobaciones independientes.
-- **Proyecto GCP compartido por la clase:** el instructor configura WIF/IAM una vez. Cada alumno debe tener un repositorio GitHub autorizado individualmente por la federación y una identidad de despliegue aislada, o el instructor debe controlar de forma explícita los permisos. No compartas una única Service Account con permisos amplios entre todos los alumnos si quieres aislamiento real.
+- Cada alumno trabaja en su propio fork/repositorio de GitHub y tiene un `ALUMNO_ID` único (por ejemplo, `jperez`).
+- Todos pueden publicar en el repositorio compartido de Artifact Registry `app-gemini`, pero el workflow construye imágenes con nombres diferentes: `app-jperez`, `app-mgarcia`, etc.
+- Cada alumno despliega un servicio Cloud Run distinto, por ejemplo `gemini-angular-jperez-dev`.
+- El instructor configura WIF para autorizar los repositorios de los alumnos y decide si cada uno tendrá una Service Account dedicada.
 
-Un `ALUMNO_ID` único solo separa nombres de recursos; **no crea aislamiento de seguridad**. Los secrets y variables configurados a nivel de repositorio también son compartidos entre quienes pueden ejecutar workflows en ese repositorio. Si todos editan y hacen push a la misma rama `main`, pueden disparar despliegues concurrentes o sobrescribir la misma configuración.
+**Importante sobre seguridad:** los nombres únicos evitan colisiones, pero no aíslan permisos. Si todas las cuentas de despliegue tienen `roles/run.admin` a nivel de proyecto, podrían modificar o eliminar los servicios de otros alumnos. Para un laboratorio compartido, el administrador debe aceptar explícitamente ese nivel de confianza o diseñar permisos IAM más restrictivos. No compartas un único repositorio GitHub con secrets de alumno distintos: los secrets de repositorio son comunes para todos los workflows de ese repositorio, y los pushes a `main` pueden lanzar despliegues concurrentes.
 
 ### 3. Antes de empezar
 
 Necesitas:
 - Una cuenta de GitHub y un repositorio donde tengas permisos para administrar Actions y Environments.
-- Un proyecto de GCP con billing habilitado.
-- Permisos para desplegar en Cloud Run y publicar imágenes en Artifact Registry, otorgados por el administrador.
-- Una identidad WIF configurada para **tu repositorio concreto**. No reutilices a ciegas el proveedor configurado para el repositorio del instructor.
+- Acceso autorizado al proyecto compartido `utec-posgrado-01`.
+- Un repositorio GitHub propio (fork) para tu trabajo.
+- Una identidad WIF autorizada para **tu repositorio concreto**, configurada por el instructor/administrador.
+- Un `ALUMNO_ID` único asignado o validado por el instructor.
 
-### 4. APIs de GCP
+### 4. APIs de GCP (solo instructor/administrador, una vez)
 
-Ejecuta esto solamente si tienes un proyecto propio o el instructor te indicó explícitamente que habilites APIs en el proyecto compartido:
+El instructor habilita las APIs en el proyecto compartido. Los alumnos no deben ejecutar este paso salvo indicación expresa del administrador.
 
 ```bash
-export PROJECT_ID="TU_PROJECT_ID"
-gcloud config set project "$PROJECT_ID"
+gcloud config set project "utec-posgrado-01"
 
 gcloud services enable \
   run.googleapis.com \
   artifactregistry.googleapis.com \
   iam.googleapis.com \
   iamcredentials.googleapis.com \
-  sts.googleapis.com
-```
-
-Comprueba las APIs:
-
-```bash
-gcloud services list --enabled \
-  --filter="name:(run.googleapis.com OR artifactregistry.googleapis.com OR iam.googleapis.com)"
+  sts.googleapis.com \
+  --project="utec-posgrado-01"
 ```
 
 ---
@@ -106,45 +102,29 @@ Para la configuración ya existente del entorno del instructor, consulta [`docs/
 
 ### Qué configura cada alumno
 
-1. Crea un fork o repositorio propio a partir del laboratorio.
-2. Identifica su proyecto GCP (`PROJECT_ID`) y su repositorio GitHub (`OWNER/REPO`).
-3. Solicita al instructor/administrador una federación WIF autorizada para **ese repositorio**. El proveedor debe validar el repositorio y, si se usa, un Environment concreto. No se debe asumir que el proveedor existente permite repositorios de alumnos.
-4. Usa una Service Account de despliegue dedicada al alumno (preferible) o el mecanismo aislado que el administrador haya definido.
-5. Crea un repositorio Artifact Registry con nombre único dentro de su proyecto, o utiliza el repositorio que el administrador le haya asignado.
-6. No generes ni guardes claves JSON. El workflow debe autenticarse mediante OIDC/WIF.
+1. Crea un fork del repositorio del laboratorio y trabaja en ese fork.
+2. Usa el proyecto compartido `utec-posgrado-01`; no crees un proyecto nuevo.
+3. Elige un `ALUMNO_ID` único, en minúsculas y sin espacios. No uses el alias de otro alumno.
+4. Envía al instructor el nombre completo de tu repositorio GitHub (`OWNER/REPO`) para que autorice ese repositorio en WIF y asigne los permisos.
+5. Configura en tu fork las variables y secrets indicados abajo.
+6. No crees cuentas de servicio, pools, proveedores ni bindings IAM compartidos por tu cuenta. No generes ni guardes claves JSON.
 
-**Importante: el workflow actual todavía tiene valores fijos** en `.github/workflows/utec.yml` (`GCP_PROJECT_ID`, `GCP_REGION` y `ARTIFACT_REGISTRY_REPO`). En tu fork, edita esos valores para que apunten a tu proyecto y al repositorio de imágenes que te asignaron. Los comandos `export` de esta guía no cambian automáticamente las variables `env:` que están escritas dentro del archivo YAML. No ejecutes el pipeline hasta confirmar que esos valores y las variables WIF correspondan a tu entorno.
+El workflow actual ya apunta al proyecto compartido `utec-posgrado-01`, a la región `us-central1` y al repositorio Artifact Registry `app-gemini`. **No cambies esos valores** salvo que el instructor te asigne otros. Cada alumno sí debe usar un `ALUMNO_ID` distinto; el workflow lo utiliza para separar el nombre de la imagen y el servicio Cloud Run.
 
-### Recursos con nombres únicos
+### Recursos únicos por alumno
 
-Para evitar colisiones dentro de un proyecto compartido, define un alias único, en minúsculas y sin espacios. Por ejemplo:
+Usa el identificador asignado por el instructor. Por ejemplo:
 
 ```bash
-export ALUMNO_ID="jperez"          # reemplázalo por tu alias único
-export ENVIRONMENT_NAME="dev"      # debe coincidir con el Environment de GitHub
+export PROJECT_ID="utec-posgrado-01"
+export ALUMNO_ID="jperez"       # reemplázalo por tu alias único
+export ENVIRONMENT_NAME="dev"
 export GCP_REGION="us-central1"
-export ARTIFACT_REGISTRY_REPO="app-gemini-$ALUMNO_ID"
+export ARTIFACT_REGISTRY_REPO="app-gemini"
 export SERVICE_NAME="gemini-angular-$ALUMNO_ID-$ENVIRONMENT_NAME"
 ```
 
-Si el repositorio Artifact Registry `app-gemini` ya fue creado por el instructor y se permite compartirlo, **no intentes crearlo otra vez**. Usa el repo asignado o pide al instructor que confirme la convención. La separación por nombre reduce colisiones de recursos, pero no impide que una persona con permisos amplios modifique recursos de otra.
-
-### Artifact Registry (solo cuando el administrador te asignó permiso para crearlo)
-
-```bash
-gcloud artifacts repositories create "$ARTIFACT_REGISTRY_REPO" \
-  --project="$PROJECT_ID" \
-  --repository-format=docker \
-  --location="$GCP_REGION" \
-  --description="Imágenes del laboratorio para $ALUMNO_ID"
-```
-
-Si el repositorio ya existe, confirma que es el que te han asignado:
-
-```bash
-gcloud artifacts repositories describe "$ARTIFACT_REGISTRY_REPO" \
-  --project="$PROJECT_ID" --location="$GCP_REGION"
-```
+El repositorio Artifact Registry `app-gemini` ya es compartido y no debes crearlo de nuevo. El workflow genera una imagen con la ruta `us-central1-docker.pkg.dev/utec-posgrado-01/app-gemini/app-$ALUMNO_ID:<commit>`; por eso cada alumno necesita un alias único. El administrador debe conceder permisos de escritura al repositorio compartido o a un repositorio asignado.
 
 ---
 
@@ -166,7 +146,7 @@ En tu propio repositorio, abre **Settings → Secrets and variables → Actions*
 | `ALUMNO_ID` | Alias único, por ejemplo `jperez` |
 | `ENVIRONMENT_NAME` | `dev` (o el Environment acordado con el instructor) |
 
-No configures `GCP_SA_KEY` ni guardes claves JSON. Si varios alumnos usan el mismo repositorio, estos secretos son compartidos y no sirven para separar quién ejecuta un workflow; trabaja en tu propio fork/repositorio para mantener tu configuración separada.
+No configures `GCP_SA_KEY` ni guardes claves JSON. Configura estos valores en tu **fork personal**. No pongas valores diferentes de `ALUMNO_ID` en el mismo repositorio esperando que cada alumno tenga un secreto propio: los repository secrets son compartidos por todos los workflows de ese repositorio.
 
 ### Environment y aprobación manual
 
