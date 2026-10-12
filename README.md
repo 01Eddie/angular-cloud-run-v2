@@ -269,6 +269,14 @@ En **Settings → Environments**, crea el Environment que corresponda al valor d
 
 ---
 
+## ⚠️ Revisar workflows antes del primer push
+
+En el repositorio original existe también `.github/workflows/workflow-reuse.yml`, que se ejecuta al hacer push a `main` y despliega a otro proyecto de GCP. Para este laboratorio compartido, **no ejecutes dos pipelines por accidente**: en tu fork, deshabilita ese workflow desde **Actions** o elimínalo de tu fork si no forma parte del ejercicio. Conserva habilitado `.github/workflows/utec.yml`, que apunta a `utec-posgrado-01`.
+
+Cada alumno debe hacer push a la rama `main` de su propio fork. No hagan push todos al repositorio del docente: los secrets/variables del repositorio se comparten entre sus workflows y los pushes pueden disparar despliegues concurrentes.
+
+---
+
 ## 🚀 Ejecución del Pipeline
 
 ### Primera ejecución (primer deploy)
