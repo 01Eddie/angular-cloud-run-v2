@@ -1,4 +1,4 @@
-name: Deploy to Google Cloud Run - Service Account Key (Multi-User)
+name: Deploy to Google Cloud Run - Workload Identity Federation (Multi-User)
 
 on:
   push:
@@ -16,7 +16,8 @@ jobs:
     environment: dev
     runs-on: ubuntu-latest
     permissions:
-      contents: 'read'
+      contents: read
+      id-token: write
     outputs:
       is_first_deploy: ${{ steps.check_service.outputs.is_first_deploy }}
 
@@ -24,10 +25,11 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Google Auth (JSON Key)
-        uses: 'google-github-actions/auth@v3'
+      - name: Google Auth (Workload Identity Federation)
+        uses: google-github-actions/auth@v3
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
@@ -92,11 +94,15 @@ jobs:
     if: needs.build_and_canary.outputs.is_first_deploy == 'false'
     environment: dev
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Google Auth
-        uses: 'google-github-actions/auth@v3'
+      - name: Google Auth (Workload Identity Federation)
+        uses: google-github-actions/auth@v3
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
@@ -119,11 +125,15 @@ jobs:
     if: always() && needs.build_and_canary.outputs.is_first_deploy == 'false' && (needs.promote_or_rollback.result == 'failure' || needs.promote_or_rollback.result == 'cancelled')
     environment: dev
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Google Auth
-        uses: 'google-github-actions/auth@v3'
+      - name: Google Auth (Workload Identity Federation)
+        uses: google-github-actions/auth@v3
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
