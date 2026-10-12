@@ -116,6 +116,8 @@ export POOL_ID="github-pool-$ALUMNO_ID"
 export PROVIDER_ID="github-provider-$ALUMNO_ID"
 export SA_ID="github-actions-$ALUMNO_ID"
 export SA_EMAIL="$SA_ID@$PROJECT_ID.iam.gserviceaccount.com"
+export RUNTIME_SA_ID="cloud-run-$ALUMNO_ID"
+export RUNTIME_SA_EMAIL="$RUNTIME_SA_ID@$PROJECT_ID.iam.gserviceaccount.com"
 export REPOSITORY="TU_USUARIO_GITHUB/angular-cloud-run-v2" # CAMBIAR por OWNER/REPO de tu fork
 export GITHUB_ENVIRONMENT="dev"
 export GCP_REGION="us-central1"
@@ -140,7 +142,7 @@ gcloud services enable \
 
 ### 3. Crear tu Service Account de despliegue
 
-Cada alumno debe usar una Service Account distinta:
+Cada alumno debe crear dos identidades distintas: una Service Account de despliegue para GitHub Actions y otra identidad de ejecución para su servicio Cloud Run.
 
 ```bash
 gcloud iam service-accounts create "$SA_ID" \
@@ -204,9 +206,11 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$SA_EMAIL" \
   --role="roles/artifactregistry.writer"
 
-export RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+gcloud iam service-accounts create "$RUNTIME_SA_ID" \
+  --project="$PROJECT_ID" \
+  --display-name="Cloud Run runtime $ALUMNO_ID"
 
-gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" \
+gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA_EMAIL" \
   --project="$PROJECT_ID" \
   --member="serviceAccount:$SA_EMAIL" \
   --role="roles/iam.serviceAccountUser"
@@ -264,7 +268,7 @@ El repositorio de imágenes será `app-$ALUMNO_ID` y la imagen tendrá una ruta 
 
 **Comunes para la clase:** el proyecto GCP `utec-posgrado-01`, las APIs habilitadas y la región `us-central1`.
 
-**Independientes por alumno:** fork de GitHub, pool WIF, proveedor OIDC, Service Account de despliegue, repositorio Artifact Registry, nombre de imagen y servicio Cloud Run.
+**Independientes por alumno:** fork de GitHub, pool WIF, proveedor OIDC, Service Account de despliegue, Service Account de ejecución de Cloud Run, repositorio Artifact Registry, nombre de imagen y servicio Cloud Run.
 
 El proyecto GCP sigue siendo compartido, por lo que los permisos IAM del proyecto no quedan aislados automáticamente.
 ---
@@ -280,6 +284,7 @@ En tu propio repositorio, abre **Settings → Secrets and variables → Actions*
 | `GCP_WIF_PROVIDER` | Nombre completo que obtuviste en el paso 8 (tu proveedor WIF) |
 | `GCP_SERVICE_ACCOUNT` | Email de tu Service Account: `github-actions-ALUMNO_ID@utec-posgrado-01.iam.gserviceaccount.com` |
 | `ARTIFACT_REGISTRY_REPO` | Nombre de tu repositorio Artifact Registry: `app-ALUMNO_ID` |
+| `CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT` | Email de tu identidad de ejecución: `cloud-run-ALUMNO_ID@utec-posgrado-01.iam.gserviceaccount.com` |
 
 ### Secrets del repositorio
 
