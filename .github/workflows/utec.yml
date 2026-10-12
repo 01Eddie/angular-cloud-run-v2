@@ -121,6 +121,7 @@ jobs:
           
           echo "Promoviendo la revisión $CANARY_REV al 100% de tráfico."
           gcloud run services update-traffic "$SERVICE_NAME" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
             --region ${{ env.GCP_REGION }} \
             --to-revisions="$CANARY_REV=100"
 
@@ -156,5 +157,6 @@ jobs:
           
           echo "El despliegue fue rechazado. Revirtiendo el 100% a la versión estable: $STABLE_REV"
           gcloud run services update-traffic "$SERVICE_NAME" \
+              --project="${{ env.GCP_PROJECT_ID }}" \
             --region ${{ env.GCP_REGION }} \
             --to-revisions="$STABLE_REV=100"
