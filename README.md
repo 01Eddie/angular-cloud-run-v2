@@ -92,40 +92,155 @@ gcloud services enable \
 
 ---
 
-## ⚙️ Configuración inicial de GCP y WIF
+## ⚙️ Configuración inicial de GCP y WIF (cada alumno)
 
-### Qué debe hacer el instructor/administrador (una sola vez por configuración)
+En este laboratorio **cada alumno configura su propia federación WIF**, igual que en la demostración del docente. Todos trabajan dentro del mismo proyecto de GCP, `utec-posgrado-01`, pero cada alumno debe usar nombres únicos para su pool, proveedor OIDC, Service Account, imagen y servicio Cloud Run.
 
-El instructor configura los recursos de confianza y los permisos necesarios: proveedor OIDC de GitHub, cuenta(s) de servicio de despliegue y permisos mínimos. **No todos los alumnos deben ejecutar** `gcloud projects add-iam-policy-binding`, `gcloud iam workload-identity-pools providers create-oidc` ni `gcloud iam service-accounts add-iam-policy-binding` sobre la infraestructura compartida.
+> **Antes de ejecutar comandos:** confirma con el instructor que tu usuario tiene permisos IAM para crear pools/proveedores WIF, cuentas de servicio y asignar los roles necesarios. Si recibes `PERMISSION_DENIED`, detente y solicita al administrador que otorgue los permisos o ejecute el paso correspondiente. No generes claves JSON ni solicites `roles/owner`.
 
-Para la configuración ya existente del entorno del instructor, consulta [`docs/WIF-GCP-SETUP.md`](docs/WIF-GCP-SETUP.md). Esa guía describe el entorno de instructor; no la ejecutes íntegramente contra el proyecto compartido sin autorización del administrador.
+### 1. Preparar variables
 
-### Qué configura cada alumno
-
-1. Crea un fork del repositorio del laboratorio y trabaja en ese fork.
-2. Usa el proyecto compartido `utec-posgrado-01`; no crees un proyecto nuevo.
-3. Elige un `ALUMNO_ID` único, en minúsculas y sin espacios. No uses el alias de otro alumno.
-4. Envía al instructor el nombre completo de tu repositorio GitHub (`OWNER/REPO`) para que autorice ese repositorio en WIF y asigne los permisos.
-5. Configura en tu fork las variables y secrets indicados abajo.
-6. No crees cuentas de servicio, pools, proveedores ni bindings IAM compartidos por tu cuenta. No generes ni guardes claves JSON.
-
-El workflow actual ya apunta al proyecto compartido `utec-posgrado-01`, a la región `us-central1` y al repositorio Artifact Registry `app-gemini`. **No cambies esos valores** salvo que el instructor te asigne otros. Cada alumno sí debe usar un `ALUMNO_ID` distinto; el workflow lo utiliza para separar el nombre de la imagen y el servicio Cloud Run.
-
-### Recursos únicos por alumno
-
-Usa el identificador asignado por el instructor. Por ejemplo:
+Ejecuta en Cloud Shell o en una terminal con Google Cloud CLI autenticado:
 
 ```bash
+gcloud auth login
+gcloud config set project utec-posgrado-01
+
 export PROJECT_ID="utec-posgrado-01"
-export ALUMNO_ID="jperez"       # reemplázalo por tu alias único
-export ENVIRONMENT_NAME="dev"
+export PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+
+# Usa solo letras minúsculas y números; identifica tu cuenta/alumno y que sea único.
+export ALUMNO_ID="jperez" # CAMBIAR por tu identificador único
+
+export POOL_ID="github-pool-$ALUMNO_ID"
+export PROVIDER_ID="github-provider-$ALUMNO_ID"
+export SA_ID="github-actions-$ALUMNO_ID"
+export SA_EMAIL="$SA_ID@$PROJECT_ID.iam.gserviceaccount.com"
+export REPOSITORY="TU_USUARIO_GITHUB/angular-cloud-run-v2" # CAMBIAR por OWNER/REPO de tu fork
+export GITHUB_ENVIRONMENT="dev"
 export GCP_REGION="us-central1"
 export ARTIFACT_REGISTRY_REPO="app-gemini"
-export SERVICE_NAME="gemini-angular-$ALUMNO_ID-$ENVIRONMENT_NAME"
 ```
 
-El repositorio Artifact Registry `app-gemini` ya es compartido y no debes crearlo de nuevo. El workflow genera una imagen con la ruta `us-central1-docker.pkg.dev/utec-posgrado-01/app-gemini/app-$ALUMNO_ID:<commit>`; por eso cada alumno necesita un alias único. El administrador debe conceder permisos de escritura al repositorio compartido o a un repositorio asignado.
+**Importante:** reemplaza `ALUMNO_ID` y `REPOSITORY` por tus propios valores antes de ejecutar los comandos. No uses el repositorio del docente como si fuera tu fork. El repositorio debe existir en GitHub y coincidir exactamente con `OWNER/REPO`.
 
+### 2. Habilitar APIs
+
+El instructor puede haberlas habilitado ya para el proyecto compartido. Verifica primero; habilítalas solo si tienes permiso y no están habilitadas:
+
+```bash
+gcloud services enable \
+  iam.googleapis.com \
+  iamcredentials.googleapis.com \
+  sts.googleapis.com \
+  run.googleapis.com \
+  artifactregistry.googleapis.com \
+  --project="$PROJECT_ID"
+```
+
+### 3. Crear tu Service Account de despliegue
+
+Cada alumno debe usar una Service Account distinta:
+
+```bash
+gcloud iam service-accounts create "$SA_ID" \
+  --project="$PROJECT_ID" \
+  --display-name="GitHub Actions $ALUMNO_ID"
+```
+
+Si la cuenta ya existe, no intentes crearla de nuevo; verifica que sea la tuya:
+
+```bash
+gcloud iam service-accounts describe "$SA_EMAIL" --project="$PROJECT_ID"
+```
+
+### 4. Crear tu pool de Workload Identity Federation
+
+```bash
+gcloud iam workload-identity-pools create "$POOL_ID" \
+  --project="$PROJECT_ID" \
+  --location="global" \
+  --display-name="GitHub Pool $ALUMNO_ID"
+```
+
+Si el pool ya existe, consúltalo y continúa con ese recurso propio; no crees otro con el mismo nombre.
+
+### 5. Crear tu proveedor OIDC de GitHub
+
+El proveedor solo debe confiar en tu repositorio y en el Environment `dev`:
+
+```bash
+gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" \
+  --project="$PROJECT_ID" \
+  --location="global" \
+  --workload-identity-pool="$POOL_ID" \
+  --display-name="GitHub OIDC $ALUMNO_ID" \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.environment=assertion.environment" \
+  --attribute-condition="assertion.repository == '$REPOSITORY' && assertion.environment == '$GITHUB_ENVIRONMENT'"
+```
+
+La condición limita la confianza al repositorio que declaraste y al Environment `dev`. No la cambies por una condición abierta que acepte cualquier repositorio.
+
+### 6. Permitir que tu repositorio use tu Service Account
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+  --project="$PROJECT_ID" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/attribute.repository/$REPOSITORY"
+```
+
+### 7. Conceder permisos de despliegue
+
+El workflow necesita permiso para desplegar Cloud Run, publicar imágenes en Artifact Registry y usar la cuenta de ejecución de Cloud Run. Los siguientes comandos asignan roles a tu Service Account:
+
+```bash
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$SA_EMAIL" \
+  --role="roles/run.admin"
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$SA_EMAIL" \
+  --role="roles/artifactregistry.writer"
+
+export RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+
+gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" \
+  --project="$PROJECT_ID" \
+  --member="serviceAccount:$SA_EMAIL" \
+  --role="roles/iam.serviceAccountUser"
+```
+
+> **Advertencia de seguridad para el proyecto compartido:** `roles/run.admin` asignado a nivel de proyecto permite administrar servicios de Cloud Run de otros alumnos, no solo el propio. `roles/artifactregistry.writer` a nivel de proyecto también puede dar acceso de escritura más amplio de lo necesario. Usa estos comandos únicamente si el instructor aprobó este modelo de confianza. Para aislamiento real, el administrador debe definir permisos más restringidos por recurso/rol personalizado; nombres diferentes por sí solos no son una barrera de seguridad. Si tu usuario no puede asignar estos roles, pide al instructor que los conceda o ejecute los comandos.
+
+### 8. Obtener los valores para GitHub Actions
+
+Obtén el nombre completo del proveedor WIF:
+
+```bash
+gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
+  --project="$PROJECT_ID" \
+  --location="global" \
+  --workload-identity-pool="$POOL_ID" \
+  --format="value(name)"
+```
+
+Copia el resultado completo; tendrá esta forma:
+
+```text
+projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool-ALUMNO_ID/providers/github-provider-ALUMNO_ID
+```
+
+Usa el valor real devuelto por el comando, no el texto de ejemplo. En tu fork, abre **Settings → Secrets and variables → Actions** y configura las variables y secrets de la siguiente sección.
+
+### Recursos compartidos del laboratorio
+
+- Proyecto: `utec-posgrado-01`
+- Región: `us-central1`
+- Artifact Registry existente: `app-gemini`
+
+No crees otro repositorio de Artifact Registry para cada alumno. La imagen debe llevar un nombre único, por ejemplo `app-jperez`; el servicio Cloud Run tendrá un nombre como `gemini-angular-jperez-dev`. Si el repositorio `app-gemini` no existe o no tienes permisos, solicita ayuda al instructor en lugar de crear recursos duplicados.
 ---
 
 ## 🔐 Configuración de GitHub Actions
@@ -136,8 +251,8 @@ En tu propio repositorio, abre **Settings → Secrets and variables → Actions*
 
 | Nombre | Valor |
 | --- | --- |
-| `GCP_WIF_PROVIDER` | Nombre completo del proveedor WIF autorizado para tu repositorio |
-| `GCP_SERVICE_ACCOUNT` | Email de la Service Account de despliegue autorizada para tu repositorio |
+| `GCP_WIF_PROVIDER` | Nombre completo que obtuviste en el paso 8 (tu proveedor WIF) |
+| `GCP_SERVICE_ACCOUNT` | Email de tu Service Account: `github-actions-ALUMNO_ID@utec-posgrado-01.iam.gserviceaccount.com` |
 
 ### Secrets del repositorio
 
@@ -314,7 +429,7 @@ gcloud projects get-iam-policy "$PROJECT_ID" \
 
 ### Error de Workload Identity Federation
 
-Verifica que `GCP_WIF_PROVIDER` contenga el nombre completo del proveedor, que `GCP_SERVICE_ACCOUNT` sea el correo exacto de la SA y que los tres jobs tengan `id-token: write`. Comprueba además que el proveedor permita únicamente el repositorio y el Environment `dev`, y que la SA tenga `roles/iam.workloadIdentityUser` para el principal del pool.
+Verifica que `GCP_WIF_PROVIDER` contenga el nombre completo del proveedor, que `GCP_SERVICE_ACCOUNT` sea el correo exacto de la SA y que los tres jobs tengan `id-token: write`. Comprueba además que el proveedor permita únicamente tu repositorio y el Environment `dev`, y que tu SA tenga `roles/iam.workloadIdentityUser` para el principal de tu pool.
 
 ### El job `promote_or_rollback` nunca aparece
 
