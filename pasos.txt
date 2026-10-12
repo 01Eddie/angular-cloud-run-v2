@@ -1,63 +1,39 @@
-# 1. Crear proyecto de google
-# 2. Abrir la cli de google en el proyecto creado
+# GitHub Actions -> Google Cloud mediante Workload Identity Federation (WIF)
+# Ejecutar en Cloud Shell con permisos para administrar IAM y Workload Identity.
+# No generar claves JSON ni asignar roles/owner.
 
-# 3. En las siguientes lineas, cambiar project ID por id del proyecto creado
-export PROJECT_ID="gh-proj-devsecops-02"
-export SA_NAME="github-actions-sa"
+export PROJECT_ID="utec-posgrado-01"
+export PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+export SA_NAME="github-actions-sa-<initial_name>"
+export SA_EMAIL="$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
+export POOL_ID="github-pool"
+export PROVIDER_ID="github-provider"
 
+gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com --project="$PROJECT_ID"
 
-gcloud iam service-accounts create $SA_NAME \
-    --display-name="GitHub Actions Service Account"
+gcloud iam service-accounts create "$SA_NAME" --project="$PROJECT_ID" --display-name="GitHub Actions"
 
-# Confirmar que se creó (ahora sí debería aparecer en la lista)
-gcloud iam service-accounts list --filter="name:$SA_NAME"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" --role="roles/run.admin"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" --role="roles/artifactregistry.writer"
 
+# Permitir a la SA de despliegue actuar como la SA de ejecución predeterminada de Cloud Run.
+RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" --project="$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" --role="roles/iam.serviceAccountUser"
 
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/owner"
+gcloud iam workload-identity-pools create "$POOL_ID" --project="$PROJECT_ID" --location=global --display-name="GitHub Actions pool"
 
-gcloud iam workload-identity-pools create "github-pool" \
-    --location="global" \
-    --display-name="GitHub Pool"
+gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL_ID" --display-name="GitHub Actions OIDC provider" --issuer-uri="https://token.actions.githubusercontent.com" --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.environment=assertion.environment" --attribute-condition="assertion.repository == 'aldower/angular-cloud-run-v2' && assertion.environment == 'dev'"
 
+gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" --project="$PROJECT_ID" --role="roles/iam.workloadIdentityUser" --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/attribute.repository/aldower/angular-cloud-run-v2"
 
-gcloud iam workload-identity-pools providers create-oidc "github-provider" \
-  --location="global" \
-  --workload-identity-pool="github-pool" \
-  --display-name="GitHub Provider" \
-  --issuer-uri="https://token.actions.githubusercontent.com" \
-  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
-  --attribute-condition="assertion.repository=='aldower/angular-cloud-run-v2'"
+# Copia el resultado a la variable de repositorio GCP_WIF_PROVIDER en GitHub.
+gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" --project="$PROJECT_ID" --location=global --workload-identity-pool="$POOL_ID" --format="value(name)"
 
-
-  gcloud iam workload-identity-pools providers describe github-provider \
-  --location=global \
-  --workload-identity-pool=github-pool \
-  --format="value(name)"
-
-SA_EMAIL="$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
-
-gcloud projects describe $PROJECT_ID --format="value(projectNumber)"
-
-# Luego de ejecutar el script anterior, debemos reemplazar el PROJECT_NUMBER, asimismo, debemos reemplazar la ORG y repository
-gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
-  --role="roles/iam.workloadIdentityUser" \
-  --member="principalSet://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/attribute.repository/ORG/repository"
-
-
-
-
-
-
-# ejemplo
-
-  - name: Google Auth
-  id: auth
-  uses: google-github-actions/auth@v3
-  with:
-    workload_identity_provider: projects/850974288704/locations/global/workloadIdentityPools/github-pool/providers/github-provider
-    service_account: github-actions-sa@gh-proj-devsecops.iam.gserviceaccount.com
-
-- run: gcloud auth list
-- run: gcloud projects describe gh-proj-devsecops --format="value(projectId)"
+# GitHub Settings > Secrets and variables > Actions:
+# Repository variables:
+#   GCP_WIF_PROVIDER = nombre completo del provider devuelto arriba
+#   GCP_SERVICE_ACCOUNT = correo de la SA ($SA_EMAIL)
+# Repository secrets:
+#   ALUMNO_ID = tu alias
+#   ENVIRONMENT_NAME = dev
+# No crear GCP_SA_KEY; no generar ni subir claves JSON.
