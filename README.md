@@ -105,66 +105,49 @@ gcloud artifacts repositories list --location=us-central1
 
 ### PASO 2 — Crear la Service Account para GitHub Actions
 
-GitHub Actions necesita credenciales para autenticarse en GCP. Crearemos una **Service Account** con los permisos mínimos necesarios.
+El workflow se autentica mediante **Workload Identity Federation (WIF)** y OIDC de GitHub. No necesita una clave JSON.
 
 ```bash
-# Crear la service account
-gcloud iam service-accounts create github-actions-sa-<initial_name> \
-  --display-name="GitHub Actions — UTEC Posgrado" \
-  --description="SA para pipeline CI/CD desde GitHub Actions"
+export PROJECT_ID="utec-posgrado-01"
+export SA_NAME="github-actions-sa-<initial_name>"
+export SA_EMAIL="$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
+export PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+
+gcloud iam service-accounts create "$SA_NAME" --project="$PROJECT_ID" --display-name="GitHub Actions — UTEC Posgrado"
+
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" --role="roles/run.admin"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" --role="roles/artifactregistry.writer"
+
+# Permitir a la SA de despliegue actuar como la SA de ejecución predeterminada de Cloud Run.
+RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" --project="$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" --role="roles/iam.serviceAccountUser"
 ```
 
-Asignar los roles necesarios:
+Reemplaza `<initial_name>` por un sufijo válido y usa el mismo correo de SA en el resto de los pasos. Si Cloud Run utiliza una SA de ejecución personalizada, concede `roles/iam.serviceAccountUser` sobre esa SA concreta.
+
+### PASO 3 — Configurar Workload Identity Federation en GCP
+
+Ejecuta estos comandos con una identidad que tenga permisos para administrar APIs, Workload Identity Pools y políticas IAM. El proveedor restringe la confianza al repositorio `aldower/angular-cloud-run-v2` y al Environment `dev`.
 
 ```bash
-PROJECT_ID="utec-posgrado-01"
-SA_EMAIL="github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+export PROJECT_ID="utec-posgrado-01"
+export PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+export POOL_ID="github-pool"
+export PROVIDER_ID="github-provider"
+export SA_EMAIL="github-actions-sa-<initial_name>@$PROJECT_ID.iam.gserviceaccount.com"
 
-# Permisos para Cloud Run (crear y actualizar servicios)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/run.admin"
+gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com --project="$PROJECT_ID"
 
-# Permisos para Artifact Registry (subir imágenes)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/artifactregistry.writer"
+gcloud iam workload-identity-pools create "$POOL_ID" --project="$PROJECT_ID" --location="global" --display-name="GitHub Actions pool"
 
-# Permisos para actuar como service account en deployments
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/iam.serviceAccountUser"
+gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" --project="$PROJECT_ID" --location="global" --workload-identity-pool="$POOL_ID" --display-name="GitHub Actions OIDC provider" --issuer-uri="https://token.actions.githubusercontent.com" --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.environment=assertion.environment" --attribute-condition="assertion.repository == 'aldower/angular-cloud-run-v2' && assertion.environment == 'dev'"
+
+gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" --project="$PROJECT_ID" --role="roles/iam.workloadIdentityUser" --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/attribute.repository/aldower/angular-cloud-run-v2"
+
+gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" --project="$PROJECT_ID" --location="global" --workload-identity-pool="$POOL_ID" --format="value(name)"
 ```
 
-Verifica los roles asignados:
-
-```bash
-gcloud projects get-iam-policy $PROJECT_ID \
-  --flatten="bindings[].members" \
-  --filter="bindings.members:github-actions-sa"
-```
-
----
-
-### PASO 3 — Generar la clave JSON de la Service Account
-
-```bash
-gcloud iam service-accounts keys create gcp-sa-key.json \
-  --iam-account="github-actions-sa@utec-posgrado-01.iam.gserviceaccount.com"
-```
-
-> ⚠️ **IMPORTANTE:** El archivo `gcp-sa-key.json` contiene credenciales sensibles.  
-> - **Nunca lo subas a GitHub** (está en el `.gitignore`)  
-> - Guárdalo temporalmente para copiarlo como secreto en el siguiente paso  
-> - Elimínalo de tu máquina después de configurar el secreto
-
-Visualiza el contenido para copiarlo:
-
-```bash
-cat gcp-sa-key.json
-```
-
----
+Copia el nombre completo que devuelve el último comando (formato `projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/github-provider`). No uses `roles/owner` para la Service Account: asigna únicamente los roles que requiere el despliegue.
 
 ### PASO 4 — Crear el Environment `dev` en GitHub
 
@@ -184,30 +167,29 @@ El job `promote_or_rollback` usa un **Environment** de GitHub para requerir apro
 
 ### PASO 5 — Configurar Secrets y Variables en GitHub
 
-Ve a tu repositorio → **Settings** → **Secrets and variables** → **Actions**
+Ve a tu repositorio → **Settings → Secrets and variables → Actions**.
 
 #### 🔒 Secrets (pestaña "Secrets")
 
-Haz clic en **"New repository secret"** para cada uno:
+Crea estos **Repository secrets**:
 
 | Secret Name | Valor | Descripción |
 |-------------|-------|-------------|
-| `GCP_SA_KEY` | *(contenido completo del archivo `gcp-sa-key.json`)* | Credenciales de la Service Account |
-| `ALUMNO_ID` | `tu-nombre-o-alias` | Identificador único del alumno (sin espacios, en minúsculas, ej: `jperez`) |
-| `ENVIRONMENT_NAME` | `dev` | Nombre del entorno de despliegue |
+| `ALUMNO_ID` | `tu-nombre-o-alias` | Identificador único sin espacios, en minúsculas (ej. `jperez`) |
+| `ENVIRONMENT_NAME` | `dev` | Sufijo del entorno de despliegue |
 
-> 💡 Para `GCP_SA_KEY`: copia **todo** el contenido JSON del archivo, incluyendo las llaves `{ }`.
+**No crees `GCP_SA_KEY`**: el workflow ya no consume claves JSON.
 
-#### 📦 Variables (pestaña "Variables") — Opcional
+#### 📦 Variables (pestaña "Variables")
 
-Estas ya están hardcodeadas en el workflow, pero puedes moverlas aquí si prefieres:
+Crea estas **Repository variables**:
 
-| Variable Name | Valor |
-|---------------|-------|
-| `GCP_PROJECT_ID` | `utec-posgrado-01` |
-| `GCP_REGION` | `us-central1` |
+| Variable Name | Valor | Descripción |
+|---------------|-------|-------------|
+| `GCP_WIF_PROVIDER` | Nombre completo del provider que devuelve el último comando del paso 3 | Identificador del proveedor WIF |
+| `GCP_SERVICE_ACCOUNT` | `github-actions-sa-<initial_name>@utec-posgrado-01.iam.gserviceaccount.com` | Correo de la Service Account de despliegue |
 
----
+Reemplaza `<initial_name>` por el sufijo usado al crear la SA. Configura las variables a nivel de repositorio para que estén disponibles en los jobs que usan el Environment `dev`.
 
 ## 🚀 Ejecución del Pipeline
 
@@ -361,9 +343,9 @@ gcloud projects get-iam-policy utec-posgrado-01 \
   --filter="bindings.members:github-actions-sa"
 ```
 
-### Error: `Secret GCP_SA_KEY not found`
+### Error de Workload Identity Federation
 
-El secreto no está configurado en el repositorio. Ve a **Settings → Secrets and variables → Actions** y verifica que `GCP_SA_KEY` existe con el contenido JSON completo.
+Verifica que `GCP_WIF_PROVIDER` contenga el nombre completo del proveedor, que `GCP_SERVICE_ACCOUNT` sea el correo exacto de la SA y que los tres jobs tengan `id-token: write`. Comprueba además que el proveedor permita únicamente el repositorio y el Environment `dev`, y que la SA tenga `roles/iam.workloadIdentityUser` para el principal del pool.
 
 ### El job `promote_or_rollback` nunca aparece
 
@@ -407,6 +389,7 @@ gcloud iam service-accounts delete \
 - [GitHub Actions — Outputs entre jobs](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idoutputs)
 - [Google Cloud Run — Traffic splitting](https://cloud.google.com/run/docs/rollouts-rollbacks-traffic-migration)
 - [Artifact Registry — Autenticación Docker](https://cloud.google.com/artifact-registry/docs/docker/authentication)
+- [Google Cloud — Workload Identity Federation with deployment pipelines](https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines)
 - [google-github-actions/auth](https://github.com/google-github-actions/auth)
 
 ---
