@@ -126,7 +126,7 @@ RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
 gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" --project="$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" --role="roles/iam.serviceAccountUser"
 ```
 
-Reemplaza `<initial_name>` por un sufijo válido y usa el mismo correo de SA en el resto de los pasos. Si Cloud Run utiliza una SA de ejecución personalizada, concede `roles/iam.serviceAccountUser` sobre esa SA concreta.
+La cuenta ya existe y se reutiliza. Si Cloud Run utiliza una SA de ejecución personalizada, concede `roles/iam.serviceAccountUser` sobre esa SA concreta.
 
 ### PASO 3 — Configurar Workload Identity Federation en GCP
 
@@ -144,6 +144,7 @@ gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sts.goog
 # El pool github-pool ya fue creado. Solo créalo si la consulta anterior confirma que no existe.
 gcloud iam workload-identity-pools describe "$POOL_ID" --project="$PROJECT_ID" --location="global"
 
+# Ejecuta create-oidc solo si github-provider todavía no existe.
 gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" --project="$PROJECT_ID" --location="global" --workload-identity-pool="$POOL_ID" --display-name="GitHub Actions OIDC provider" --issuer-uri="https://token.actions.githubusercontent.com" --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.environment=assertion.environment" --attribute-condition="assertion.repository == 'aldower/angular-cloud-run-v2' && assertion.environment == 'dev'"
 
 gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" --project="$PROJECT_ID" --role="roles/iam.workloadIdentityUser" --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/attribute.repository/aldower/angular-cloud-run-v2"
