@@ -400,3 +400,5 @@ gcloud iam service-accounts delete \
 ---
 
 *Material elaborado para UTEC Posgrado — Módulo 5, Sesión 1 | Docente: Aldo Trucios*
+
+
