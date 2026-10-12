@@ -8,7 +8,7 @@ on:
 env:
   GCP_PROJECT_ID: "utec-posgrado-01"
   GCP_REGION: "us-central1"
-  ARTIFACT_REGISTRY_REPO: "app-gemini" 
+  ARTIFACT_REGISTRY_REPO: ${{ vars.ARTIFACT_REGISTRY_REPO }}
 
 jobs:
   # 1. JOB DE CONSTRUCCIÓN Y DESPLIEGUE INICIAL / CANARY (10%)
@@ -30,6 +30,7 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
 
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
@@ -41,7 +42,7 @@ jobs:
         id: check_service
         run: |
           SERVICE_NAME="gemini-angular-${{ secrets.ALUMNO_ID }}-${{ secrets.ENVIRONMENT_NAME }}"
-          if gcloud run services describe "$SERVICE_NAME" --region ${{ env.GCP_REGION }} >/dev/null 2>&1; then
+          if gcloud run services describe "$SERVICE_NAME" --project=${{ env.GCP_PROJECT_ID }} --region ${{ env.GCP_REGION }} >/dev/null 2>&1; then
             echo "is_first_deploy=false" >> $GITHUB_OUTPUT
             echo "El servicio ya existe. Procediendo con Canary (10%)."
           else
@@ -66,7 +67,7 @@ jobs:
               --set-env-vars="ENVIRONMENT_NAME=${{ secrets.ENVIRONMENT_NAME }}"
           else
             # 1. Obtener la revisión principal actual (separa por ';' y toma la primera)
-            PREVIOUS_REV=$(gcloud run services describe "$SERVICE_NAME" --region ${{ env.GCP_REGION }} --format="value(status.traffic.revisionName)" | tr ';' '\n' | head -n 1)
+            PREVIOUS_REV=$(gcloud run services describe "$SERVICE_NAME" --project=${{ env.GCP_PROJECT_ID }} --region ${{ env.GCP_REGION }} --format="value(status.traffic.revisionName)" | tr ';' '\n' | head -n 1)
             echo "La versión estable base es: $PREVIOUS_REV"
 
             # 2. Desplegar la nueva imagen sin tráfico
@@ -79,7 +80,7 @@ jobs:
               --set-env-vars="ENVIRONMENT_NAME=${{ secrets.ENVIRONMENT_NAME }}"
             
             # 3. Capturar el nombre de la NUEVA revisión Canary recién creada
-            CANARY_REV=$(gcloud run services describe "$SERVICE_NAME" --region ${{ env.GCP_REGION }} --format="value(status.latestCreatedRevisionName)")
+            CANARY_REV=$(gcloud run services describe "$SERVICE_NAME" --project=${{ env.GCP_PROJECT_ID }} --region ${{ env.GCP_REGION }} --format="value(status.latestCreatedRevisionName)")
             
             # 4. Aplicar el tráfico dinámicamente
             echo "Asignando 90% a $PREVIOUS_REV y 10% a $CANARY_REV"
@@ -112,7 +113,7 @@ jobs:
           SERVICE_NAME="gemini-angular-${{ secrets.ALUMNO_ID }}-${{ secrets.ENVIRONMENT_NAME }}"
           
           # Buscamos de forma dinámica cuál fue la última revisión creada (el Canary)
-          CANARY_REV=$(gcloud run services describe "$SERVICE_NAME" --region ${{ env.GCP_REGION }} --format="value(status.latestCreatedRevisionName)")
+          CANARY_REV=$(gcloud run services describe "$SERVICE_NAME" --project=${{ env.GCP_PROJECT_ID }} --region ${{ env.GCP_REGION }} --format="value(status.latestCreatedRevisionName)")
           
           echo "Promoviendo la revisión $CANARY_REV al 100% de tráfico."
           gcloud run services update-traffic "$SERVICE_NAME" \
@@ -143,10 +144,10 @@ jobs:
           SERVICE_NAME="gemini-angular-${{ secrets.ALUMNO_ID }}-${{ secrets.ENVIRONMENT_NAME }}"
           
           # 1. Identificar la revisión Canary (la que vamos a descartar)
-          CANARY_REV=$(gcloud run services describe "$SERVICE_NAME" --region ${{ env.GCP_REGION }} --format="value(status.latestCreatedRevisionName)")
+          CANARY_REV=$(gcloud run services describe "$SERVICE_NAME" --project=${{ env.GCP_PROJECT_ID }} --region ${{ env.GCP_REGION }} --format="value(status.latestCreatedRevisionName)")
           
           # 2. Obtener lista de revisiones, separar por saltos de línea, EXCLUIR el Canary y tomar la que quede
-          STABLE_REV=$(gcloud run services describe "$SERVICE_NAME" --region ${{ env.GCP_REGION }} --format="value(status.traffic.revisionName)" | tr ';' '\n' | grep -v "$CANARY_REV" | head -n 1)
+          STABLE_REV=$(gcloud run services describe "$SERVICE_NAME" --project=${{ env.GCP_PROJECT_ID }} --region ${{ env.GCP_REGION }} --format="value(status.traffic.revisionName)" | tr ';' '\n' | grep -v "$CANARY_REV" | head -n 1)
           
           echo "El despliegue fue rechazado. Revirtiendo el 100% a la versión estable: $STABLE_REV"
           gcloud run services update-traffic "$SERVICE_NAME" \
