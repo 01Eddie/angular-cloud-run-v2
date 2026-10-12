@@ -214,7 +214,7 @@ gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" \
 
 > **Advertencia de seguridad para el proyecto compartido:** `roles/run.admin` asignado a nivel de proyecto permite administrar servicios de Cloud Run de otros alumnos, no solo el propio. `roles/artifactregistry.writer` a nivel de proyecto también puede dar acceso de escritura más amplio de lo necesario. Usa estos comandos únicamente si el instructor aprobó este modelo de confianza. Para aislamiento real, el administrador debe definir permisos más restringidos por recurso/rol personalizado; nombres diferentes por sí solos no son una barrera de seguridad. Si tu usuario no puede asignar estos roles, pide al instructor que los conceda o ejecute los comandos.
 
-### 8. Obtener los valores para GitHub Actions
+### 9. Obtener los valores para GitHub Actions
 
 Obtén el nombre completo del proveedor WIF:
 
@@ -301,6 +301,27 @@ En **Settings → Environments**, crea el Environment que corresponda al valor d
 En el repositorio original existe también `.github/workflows/workflow-reuse.yml`, que se ejecuta al hacer push a `main` y despliega a otro proyecto de GCP. Para este laboratorio compartido, **no ejecutes dos pipelines por accidente**: en tu fork, deshabilita ese workflow desde **Actions** o elimínalo de tu fork si no forma parte del ejercicio. Conserva habilitado `.github/workflows/utec.yml`, que apunta a `utec-posgrado-01`.
 
 Cada alumno debe hacer push a la rama `main` de su propio fork. No hagan push todos al repositorio del docente: los secrets/variables del repositorio se comparten entre sus workflows y los pushes pueden disparar despliegues concurrentes.
+
+---
+
+## 🧪 Prueba completa como alumno nuevo
+
+Haz esta prueba desde un fork nuevo o desde un repositorio de prueba que no tenga configuración previa. Usa un alias temporal único, por ejemplo `jperezlab`, para no tocar recursos de otro alumno.
+
+- [ ] El fork existe y el workflow `.github/workflows/utec.yml` está en la rama `main`.
+- [ ] En GCP creaste tu Service Account, pool WIF, proveedor OIDC y repositorio Artifact Registry con nombres propios.
+- [ ] La condición OIDC contiene el nombre exacto de tu fork y el Environment `dev`.
+- [ ] En GitHub configuraste las variables `GCP_WIF_PROVIDER`, `GCP_SERVICE_ACCOUNT` y `ARTIFACT_REGISTRY_REPO`.
+- [ ] En GitHub configuraste los secrets `ALUMNO_ID` y `ENVIRONMENT_NAME=dev`.
+- [ ] Creaste el Environment `dev` en **Settings → Environments**.
+- [ ] Deshabilitaste o quitaste `.github/workflows/workflow-reuse.yml` en el fork para evitar un segundo despliegue a otro proyecto.
+- [ ] Hiciste un cambio pequeño y ejecutaste `git push origin main`.
+- [ ] En Actions, el primer job pasó autenticación WIF, build, push de imagen y creación del servicio Cloud Run.
+- [ ] Verificaste que la URL del servicio sea la de tu propio servicio y que otro alumno no comparta su nombre.
+
+Si el paso de autenticación falla, revisa primero el proveedor y el principal federado. Si la autenticación funciona pero falla al crear Cloud Run, revisa el permiso `roles/run.admin`. Si falla al subir la imagen, revisa el permiso de escritura en **tu repositorio Artifact Registry**. No cambies los nombres ni amplíes los permisos a ciegas.
+
+**Límite importante:** como el proyecto GCP es compartido, el paso de asignar `roles/run.admin` a nivel de proyecto permite a esa Service Account administrar servicios de otros alumnos. Cada alumno tendrá recursos y credenciales WIF separados, pero no aislamiento completo de permisos. Para una práctica donde todos ejecutan el setup por sí mismos, el administrador debe aceptar este modelo o diseñar roles IAM más restrictivos.
 
 ---
 
