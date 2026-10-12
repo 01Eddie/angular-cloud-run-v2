@@ -62,6 +62,7 @@ jobs:
             gcloud run deploy "$SERVICE_NAME" \
               --project="${{ env.GCP_PROJECT_ID }}" \
               --image "$IMAGE_TAG" \
+              --service-account="${{ vars.CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT }}" \
               --region ${{ env.GCP_REGION }} \
               --platform managed \
               --allow-unauthenticated \
@@ -75,6 +76,7 @@ jobs:
             gcloud run deploy "$SERVICE_NAME" \
               --project="${{ env.GCP_PROJECT_ID }}" \
               --image "$IMAGE_TAG" \
+              --service-account="${{ vars.CLOUD_RUN_RUNTIME_SERVICE_ACCOUNT }}" \
               --region ${{ env.GCP_REGION }} \
               --platform managed \
               --allow-unauthenticated \
