@@ -57,7 +57,7 @@ tráfico    (vuelve a versión estable)
 - ✅ Cuenta de **GitHub** (gratuita)
 - ✅ Cuenta de **Google Cloud Platform** con proyecto activo
 - ✅ Proyecto GCP con **billing habilitado**
-- ✅ Acceso de **Editor** o **Owner** al proyecto GCP
+- ✅ Proyecto GCP con permisos para desplegar recursos. La configuración inicial de IAM/WIF puede requerir que un administrador ejecute algunos comandos.
 
 ### 3. APIs de GCP habilitadas
 
@@ -84,6 +84,8 @@ gcloud services list --enabled \
 
 ## ⚙️ Configuración Inicial (hacer una sola vez)
 
+> **Estado actual del instructor:** proyecto `utec-posgrado-01`; Service Account `github-actions-sa-jtruc@utec-posgrado-01.iam.gserviceaccount.com` ya existe y está habilitada; pool `github-pool` ya fue creado. Continúa con la verificación/configuración, no repitas la creación de esos recursos. Para el paso a paso completo, consulta [`docs/WIF-GCP-SETUP.md`](docs/WIF-GCP-SETUP.md).
+
 ### PASO 1 — Crear el repositorio de Artifact Registry
 
 Artifact Registry es donde se almacenarán las imágenes Docker que construya el pipeline.
@@ -103,17 +105,18 @@ gcloud artifacts repositories list --location=us-central1
 
 ---
 
-### PASO 2 — Crear la Service Account para GitHub Actions
+### PASO 2 — Verificar y preparar la Service Account existente para GitHub Actions
 
-El workflow se autentica mediante **Workload Identity Federation (WIF)** y OIDC de GitHub. No necesita una clave JSON.
+El workflow se autentica mediante **Workload Identity Federation (WIF)** y OIDC de GitHub. No necesita una clave JSON. En este proyecto ya existe esta cuenta de servicio habilitada; reutilízala y no crees otra:
+
+Cuenta de servicio existente: `github-actions-sa-jtruc@utec-posgrado-01.iam.gserviceaccount.com`.
 
 ```bash
 export PROJECT_ID="utec-posgrado-01"
-export SA_NAME="github-actions-sa-<initial_name>"
-export SA_EMAIL="$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
+export SA_EMAIL="github-actions-sa-jtruc@$PROJECT_ID.iam.gserviceaccount.com"
 export PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
 
-gcloud iam service-accounts create "$SA_NAME" --project="$PROJECT_ID" --display-name="GitHub Actions — UTEC Posgrado"
+gcloud iam service-accounts describe "$SA_EMAIL" --project="$PROJECT_ID"
 
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" --role="roles/run.admin"
 gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" --role="roles/artifactregistry.writer"
@@ -123,7 +126,7 @@ RUNTIME_SA="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
 gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SA" --project="$PROJECT_ID" --member="serviceAccount:$SA_EMAIL" --role="roles/iam.serviceAccountUser"
 ```
 
-Reemplaza `<initial_name>` por un sufijo válido y usa el mismo correo de SA en el resto de los pasos. Si Cloud Run utiliza una SA de ejecución personalizada, concede `roles/iam.serviceAccountUser` sobre esa SA concreta.
+La cuenta ya existe y se reutiliza. Si Cloud Run utiliza una SA de ejecución personalizada, concede `roles/iam.serviceAccountUser` sobre esa SA concreta.
 
 ### PASO 3 — Configurar Workload Identity Federation en GCP
 
@@ -134,12 +137,14 @@ export PROJECT_ID="utec-posgrado-01"
 export PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
 export POOL_ID="github-pool"
 export PROVIDER_ID="github-provider"
-export SA_EMAIL="github-actions-sa-<initial_name>@$PROJECT_ID.iam.gserviceaccount.com"
+export SA_EMAIL="github-actions-sa-jtruc@$PROJECT_ID.iam.gserviceaccount.com"
 
 gcloud services enable iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com --project="$PROJECT_ID"
 
-gcloud iam workload-identity-pools create "$POOL_ID" --project="$PROJECT_ID" --location="global" --display-name="GitHub Actions pool"
+# El pool github-pool ya fue creado. Solo créalo si la consulta anterior confirma que no existe.
+gcloud iam workload-identity-pools describe "$POOL_ID" --project="$PROJECT_ID" --location="global"
 
+# Ejecuta create-oidc solo si github-provider todavía no existe.
 gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" --project="$PROJECT_ID" --location="global" --workload-identity-pool="$POOL_ID" --display-name="GitHub Actions OIDC provider" --issuer-uri="https://token.actions.githubusercontent.com" --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.environment=assertion.environment" --attribute-condition="assertion.repository == 'aldower/angular-cloud-run-v2' && assertion.environment == 'dev'"
 
 gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" --project="$PROJECT_ID" --role="roles/iam.workloadIdentityUser" --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/$POOL_ID/attribute.repository/aldower/angular-cloud-run-v2"
@@ -187,9 +192,9 @@ Crea estas **Repository variables**:
 | Variable Name | Valor | Descripción |
 |---------------|-------|-------------|
 | `GCP_WIF_PROVIDER` | Nombre completo del provider que devuelve el último comando del paso 3 | Identificador del proveedor WIF |
-| `GCP_SERVICE_ACCOUNT` | `github-actions-sa-<initial_name>@utec-posgrado-01.iam.gserviceaccount.com` | Correo de la Service Account de despliegue |
+| `GCP_SERVICE_ACCOUNT` | `github-actions-sa-jtruc@utec-posgrado-01.iam.gserviceaccount.com` | Correo de la Service Account de despliegue |
 
-Reemplaza `<initial_name>` por el sufijo usado al crear la SA. Configura las variables a nivel de repositorio para que estén disponibles en los jobs que usan el Environment `dev`.
+Usa exactamente el correo existente `github-actions-sa-jtruc@utec-posgrado-01.iam.gserviceaccount.com`. Configura las variables a nivel de repositorio para que estén disponibles en los jobs que usan el Environment `dev`.
 
 ## 🚀 Ejecución del Pipeline
 
