@@ -119,7 +119,7 @@ export SA_EMAIL="$SA_ID@$PROJECT_ID.iam.gserviceaccount.com"
 export REPOSITORY="TU_USUARIO_GITHUB/angular-cloud-run-v2" # CAMBIAR por OWNER/REPO de tu fork
 export GITHUB_ENVIRONMENT="dev"
 export GCP_REGION="us-central1"
-export ARTIFACT_REGISTRY_REPO="app-gemini"
+export ARTIFACT_REGISTRY_REPO="app-$ALUMNO_ID"
 ```
 
 **Importante:** reemplaza `ALUMNO_ID` y `REPOSITORY` por tus propios valores antes de ejecutar los comandos. No uses el repositorio del docente como si fuera tu fork. El repositorio debe existir en GitHub y coincidir exactamente con `OWNER/REPO`.
@@ -234,13 +234,39 @@ projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool-ALUMN
 
 Usa el valor real devuelto por el comando, no el texto de ejemplo. En tu fork, abre **Settings → Secrets and variables → Actions** y configura las variables y secrets de la siguiente sección.
 
-### Recursos compartidos del laboratorio
+### 8. Crear tu propio repositorio de Artifact Registry
 
-- Proyecto: `utec-posgrado-01`
-- Región: `us-central1`
-- Artifact Registry existente: `app-gemini`
+Cada alumno crea su propio repositorio Docker en el proyecto compartido. Así no comparten el repositorio de imágenes entre alumnos:
 
-No crees otro repositorio de Artifact Registry para cada alumno. La imagen debe llevar un nombre único, por ejemplo `app-jperez`; el servicio Cloud Run tendrá un nombre como `gemini-angular-jperez-dev`. Si el repositorio `app-gemini` no existe o no tienes permisos, solicita ayuda al instructor en lugar de crear recursos duplicados.
+```bash
+gcloud artifacts repositories create "$ARTIFACT_REGISTRY_REPO" \
+  --project="$PROJECT_ID" \
+  --location="$GCP_REGION" \
+  --repository-format=docker \
+  --description="Imágenes de Cloud Run para $ALUMNO_ID"
+```
+
+Si ya existe un repositorio con ese nombre, comprueba que sea el tuyo antes de continuar. No borres ni reutilices el repositorio de otro alumno.
+
+Concede a tu Service Account acceso de escritura únicamente a tu repositorio:
+
+```bash
+gcloud artifacts repositories add-iam-policy-binding "$ARTIFACT_REGISTRY_REPO" \
+  --project="$PROJECT_ID" \
+  --location="$GCP_REGION" \
+  --member="serviceAccount:$SA_EMAIL" \
+  --role="roles/artifactregistry.writer"
+```
+
+El repositorio de imágenes será `app-$ALUMNO_ID` y la imagen tendrá una ruta como `us-central1-docker.pkg.dev/utec-posgrado-01/app-jperez/app-jperez:<commit>`.
+
+### Recursos comunes y recursos independientes
+
+**Comunes para la clase:** el proyecto GCP `utec-posgrado-01`, las APIs habilitadas y la región `us-central1`.
+
+**Independientes por alumno:** fork de GitHub, pool WIF, proveedor OIDC, Service Account de despliegue, repositorio Artifact Registry, nombre de imagen y servicio Cloud Run.
+
+El proyecto GCP sigue siendo compartido, por lo que los permisos IAM del proyecto no quedan aislados automáticamente.
 ---
 
 ## 🔐 Configuración de GitHub Actions
@@ -253,6 +279,7 @@ En tu propio repositorio, abre **Settings → Secrets and variables → Actions*
 | --- | --- |
 | `GCP_WIF_PROVIDER` | Nombre completo que obtuviste en el paso 8 (tu proveedor WIF) |
 | `GCP_SERVICE_ACCOUNT` | Email de tu Service Account: `github-actions-ALUMNO_ID@utec-posgrado-01.iam.gserviceaccount.com` |
+| `ARTIFACT_REGISTRY_REPO` | Nombre de tu repositorio Artifact Registry: `app-ALUMNO_ID` |
 
 ### Secrets del repositorio
 
@@ -261,7 +288,7 @@ En tu propio repositorio, abre **Settings → Secrets and variables → Actions*
 | `ALUMNO_ID` | Alias único, por ejemplo `jperez` |
 | `ENVIRONMENT_NAME` | `dev` (o el Environment acordado con el instructor) |
 
-No configures `GCP_SA_KEY` ni guardes claves JSON. Configura estos valores en tu **fork personal**. No pongas valores diferentes de `ALUMNO_ID` en el mismo repositorio esperando que cada alumno tenga un secreto propio: los repository secrets son compartidos por todos los workflows de ese repositorio.
+No configures `GCP_SA_KEY` ni guardes claves JSON. Configura estas variables en tu **fork personal**. No pongas valores diferentes de `ALUMNO_ID` en el mismo repositorio esperando que cada alumno tenga un secreto propio: los repository secrets son compartidos por todos los workflows de ese repositorio.
 
 ### Environment y aprobación manual
 
@@ -324,7 +351,7 @@ El pipeline:
 
 ```bash
 # Define estos valores para tu propio proyecto y tu alias.
-PROJECT_ID="TU_PROJECT_ID"
+PROJECT_ID="utec-posgrado-01"
 ALUMNO_ID="TU_ALUMNO_ID"
 ENVIRONMENT_NAME="dev"
 GCP_REGION="us-central1"
@@ -464,9 +491,9 @@ gcloud run services delete "gemini-angular-TU_ALUMNO_ID-dev" \
   --region us-central1 --quiet
 
 # Eliminar las imágenes SOLO si este repositorio pertenece a tu alumno/proyecto.
-# Sustituye PROJECT_ID y ARTIFACT_REGISTRY_REPO por los valores reales.
+# Sustituye ARTIFACT_REGISTRY_REPO por el nombre de tu repositorio.
 gcloud artifacts docker images delete \
-  "us-central1-docker.pkg.dev/TU_PROJECT_ID/TU_ARTIFACT_REGISTRY_REPO/app-TU_ALUMNO_ID" \
+  "us-central1-docker.pkg.dev/utec-posgrado-01/TU_ARTIFACT_REGISTRY_REPO/app-TU_ALUMNO_ID" \
   --delete-tags --quiet
 
 # No elimines la Service Account, el pool WIF ni el provider compartido del instructor.
